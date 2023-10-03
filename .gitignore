@@ -19,6 +19,7 @@
 *.aac
 DEMO
 Makefile
+build/
 /vmlinuz
 /System.map
 /Module.markers

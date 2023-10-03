@@ -1,0 +1,6 @@
+修正07-10-2-audio_resample中：
+（1）低采样率往高采样率时计算时错误计算，应该是 // 计算这次做重采样能够获取到的重采样后的点数
+    const int dst_nb_samples = av_rescale_rnd(swr_get_delay(resampler->swr_ctx, resampler->resampler_params.src_sample_rate) + src_nb_samples,
+                                              resampler->resampler_params.src_sample_rate, resampler->resampler_params.dst_sample_rate, AV_ROUND_UP);
+
+（2）一次audio_resampler_send_frame2，需要循环audio_resampler_receive_frame2读取FIFO

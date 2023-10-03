@@ -1,0 +1,37 @@
+*.o
+*.o.*
+*.a
+*.s
+*.ko
+*.so
+*.json
+*.so.dbg
+*.mod.c
+*.wav
+*.pcm
+*.yuv
+*.mp3
+*.mp4
+*.flv
+*.ts
+*.DS_Store
+*.h264
+*.aac
+DEMO
+Makefile
+/vmlinuz
+/System.map
+/Module.markers
+/tar-install/
+!.gitignore
+!.mailmap
+ 
+#
+# Generated include files
+#
+include/config
+include/generated
+arch/*/include/generated
+ 
+# stgit generated dirs
+patches-*

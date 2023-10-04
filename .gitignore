@@ -20,6 +20,7 @@
 DEMO
 Makefile
 build/
+cmake/
 /vmlinuz
 /System.map
 /Module.markers

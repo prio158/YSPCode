@@ -3,6 +3,7 @@ project(SDL_DEMO)
 
 # 设置变量
 # set(LIB_PATH ../lib)
+add_compile_options(-std=c++11)
 
 # 1导入头文件的文件夹，它会该文件夹中的所有头文件导入
 set(SDL_DIR /opt/homebrew/Cellar/ffmpeg/5.1.2_4/)

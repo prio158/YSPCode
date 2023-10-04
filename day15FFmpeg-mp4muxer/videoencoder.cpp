@@ -1,16 +1,17 @@
 #include "include/videoencoder.h"
+using namespace std;
 extern "C"
 {
 #include "libavutil/imgutils.h"
 }
 VideoEncoder::VideoEncoder()
 {
-
 }
 
 VideoEncoder::~VideoEncoder()
 {
-    if(codec_ctx_) {
+    if (codec_ctx_)
+    {
         DeInit();
     }
 }
@@ -23,29 +24,36 @@ int VideoEncoder::InitH264(int width, int height, int fps, int bit_rate)
     bit_rate_ = bit_rate;
 
     const AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_H264);
-    if(!codec) {
+    if (!codec)
+    {
         printf("avcodec_find_encoder AV_CODEC_ID_H264 failed\n");
         return -1;
     }
     codec_ctx_ = avcodec_alloc_context3(codec);
-    if(!codec_ctx_) {
+    if (!codec_ctx_)
+    {
         printf("avcodec_alloc_context3 AV_CODEC_ID_H264 failed\n");
         return -1;
     }
+
+    AVRational framerate = {fps_, 1};
+    AVRational base = {1, 1000000};
 
     codec_ctx_->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     codec_ctx_->bit_rate = bit_rate_;
     codec_ctx_->width = width_;
     codec_ctx_->height = height_;
-    codec_ctx_->framerate = {fps_, 1};
-    codec_ctx_->time_base = {1, 1000000};   // 单位为微妙
+
+    codec_ctx_->framerate = framerate;
+    codec_ctx_->time_base = base; // 单位为微妙
 
     codec_ctx_->gop_size = fps_;
     codec_ctx_->max_b_frames = 0;
     codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
 
     int ret = avcodec_open2(codec_ctx_, NULL, NULL);
-    if(ret != 0) {
+    if (ret != 0)
+    {
         char errbuf[1024] = {0};
         av_strerror(ret, errbuf, sizeof(errbuf) - 1);
         printf("avcodec_open2 failed:%s\n", errbuf);
@@ -53,7 +61,8 @@ int VideoEncoder::InitH264(int width, int height, int fps, int bit_rate)
     }
 
     frame_ = av_frame_alloc();
-    if(!frame_) {
+    if (!frame_)
+    {
         printf("av_frame_alloc failed\n");
         return -1;
     }
@@ -67,17 +76,20 @@ int VideoEncoder::InitH264(int width, int height, int fps, int bit_rate)
 
 void VideoEncoder::DeInit()
 {
-    if(codec_ctx_) {
+    if (codec_ctx_)
+    {
         avcodec_free_context(&codec_ctx_);
     }
-    if(frame_) {
+    if (frame_)
+    {
         av_frame_free(&frame_);
     }
 }
 
 AVPacket *VideoEncoder::Encode(uint8_t *yuv_data, int yuv_size, int stream_index, int64_t pts, int64_t time_base)
 {
-    if(!codec_ctx_) {
+    if (!codec_ctx_)
+    {
         printf("codec_ctx_ null\n");
         return NULL;
     }
@@ -85,22 +97,27 @@ AVPacket *VideoEncoder::Encode(uint8_t *yuv_data, int yuv_size, int stream_index
 
     pts = av_rescale_q(pts, AVRational{1, (int)time_base}, codec_ctx_->time_base);
     frame_->pts = pts;
-    if(yuv_data) {
-        //av_image_fill_arrays：只是将frme_->data（第一个参数）的指针指向yuv_data，
-        //而不会为它分配内存
+    if (yuv_data)
+    {
+        // av_image_fill_arrays：只是将frme_->data（第一个参数）的指针指向yuv_data，
+        // 而不会为它分配内存
         int ret_size = av_image_fill_arrays(frame_->data, frame_->linesize,
                                             yuv_data, (AVPixelFormat)frame_->format,
                                             frame_->width, frame_->height, 1);
-        if(ret_size != yuv_size) {
+        if (ret_size != yuv_size)
+        {
             printf("ret_size:%d != yuv_size:%d -> failed\n", ret_size, yuv_size);
             return NULL;
         }
         ret = avcodec_send_frame(codec_ctx_, frame_);
-    } else {
+    }
+    else
+    {
         ret = avcodec_send_frame(codec_ctx_, NULL);
     }
 
-    if(ret != 0) {
+    if (ret != 0)
+    {
         char errbuf[1024] = {0};
         av_strerror(ret, errbuf, sizeof(errbuf) - 1);
         printf("avcodec_send_frame failed:%s\n", errbuf);
@@ -108,7 +125,8 @@ AVPacket *VideoEncoder::Encode(uint8_t *yuv_data, int yuv_size, int stream_index
     }
     AVPacket *packet = av_packet_alloc();
     ret = avcodec_receive_packet(codec_ctx_, packet);
-    if(ret != 0) {
+    if (ret != 0)
+    {
         char errbuf[1024] = {0};
         av_strerror(ret, errbuf, sizeof(errbuf) - 1);
         printf("h264 avcodec_receive_packet failed:%s\n", errbuf);

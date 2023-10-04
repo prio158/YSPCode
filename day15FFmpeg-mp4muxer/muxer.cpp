@@ -116,7 +116,7 @@ int Muxer::SendPacket(AVPacket *packet)
 
     int ret = 0;
     ret = av_interleaved_write_frame(fmt_ctx_, packet); // 不是立即写入文件，内部缓存，主要是对pts进行排序
-    //    ret = av_write_frame(fmt_ctx_, packet); 直播用这个
+    //ret = av_write_frame(fmt_ctx_, packet); 直播用这个
     av_packet_free(&packet);
     if(ret == 0) {
         return 0;

@@ -14,7 +14,7 @@ int main(int argc, char **argv)
     int ret = 0;
 
     // input yuv
-    const char *inFileName = "768x320.yuv";
+    const char *inFileName = "/Users/chenzirui/Desktop/YSPCode/day16FFmpeg-video-watermark-filter/768x320.yuv";
     FILE* inFile = fopen(inFileName, "rb");
     if (!inFile)
     {

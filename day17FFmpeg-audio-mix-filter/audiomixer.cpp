@@ -1,21 +1,20 @@
-﻿#include "audiomixer.h"
+﻿#include "include/audiomixer.h"
 
 AudioMixer::AudioMixer()
-    : initialized_(false)
-    , filter_graph_(nullptr)
-    , audio_output_info_(nullptr)
+    : initialized_(false), audio_output_info_(nullptr), filter_graph_(nullptr)
 {
 
     audio_mix_info_.reset(new AudioInfo);
-    audio_mix_info_->name = "amix";     // 混音用的
+    audio_mix_info_->name = "amix"; // 混音用的
 
     audio_sink_info_.reset(new AudioInfo);
-    audio_sink_info_->name = "sink";    // 输出
+    audio_sink_info_->name = "sink"; // 输出
 }
 
 AudioMixer::~AudioMixer()
 {
-    if(initialized_) {
+    if (initialized_)
+    {
         exit();
     }
 }
@@ -23,6 +22,9 @@ AudioMixer::~AudioMixer()
 int AudioMixer::addAudioInput(uint32_t index, uint32_t samplerate, uint32_t channels,
                               uint32_t bitsPerSample, AVSampleFormat format)
 {
+    //  在std::lock_guard对象构造时，传入的mutex对象(即它所管理的mutex对象)会被当前线程锁住。
+    //  在lock_guard对象被析构时，它所管理的mutex对象会自动解锁，不需要程序员手动调用lock和
+    //  unlock对mutex进行上锁和解锁操作
     std::lock_guard<std::mutex> locker(mutex_);
 
     if (initialized_)
@@ -32,11 +34,11 @@ int AudioMixer::addAudioInput(uint32_t index, uint32_t samplerate, uint32_t chan
 
     if (audio_input_info_.find(index) != audio_input_info_.end())
     {
-        return -1;      // 已经存在则返回-1
+        return -1; // 已经存在则返回-1
     }
 
     // 初始化一个input 可以有多个输入
-    auto& filterInfo = audio_input_info_[index];
+    auto &filterInfo = audio_input_info_[index];
     // 初始化音频相关的参数
     filterInfo.samplerate = samplerate;
     filterInfo.channels = channels;
@@ -85,7 +87,7 @@ dropout_transition
  * @param duration longest最长输入时间,shortest最短,first第一个输入持续的时间
  * @return
  */
-int AudioMixer::init(const  char *duration)
+int AudioMixer::init(const char *duration)
 {
     std::lock_guard<std::mutex> locker(mutex_);
 
@@ -107,7 +109,7 @@ int AudioMixer::init(const  char *duration)
 
     char args[512] = {0};
 
-    const AVFilter *amix = avfilter_get_by_name("amix");    // 混音
+    const AVFilter *amix = avfilter_get_by_name("amix"); // 混音
     audio_mix_info_->filterCtx = avfilter_graph_alloc_filter(filter_graph_, amix, "amix");
     /*inputs=输入流数量, duration=决定流的结束,
      * dropout_transition= 输入流结束时,容量重整时间,
@@ -128,14 +130,14 @@ int AudioMixer::init(const  char *duration)
         return -1;
     }
 
-    for (auto& iter : audio_input_info_)
+    for (auto &iter : audio_input_info_)
     {
         const AVFilter *abuffer = avfilter_get_by_name("abuffer");
         snprintf(args, sizeof(args),
-                 "sample_rate=%d:sample_fmt=%s:channel_layout=0x%I64x",
+                 "sample_rate=%d:sample_fmt=%s:channel_layout=%d",
                  iter.second.samplerate,
                  av_get_sample_fmt_name(iter.second.format),
-                 av_get_default_channel_layout(iter.second.channels));
+                 (int)av_get_default_channel_layout(iter.second.channels));
         printf("[AudioMixer] input(%d) args: %s\n", iter.first, args);
 
         iter.second.filterCtx = avfilter_graph_alloc_filter(filter_graph_, abuffer,
@@ -158,10 +160,10 @@ int AudioMixer::init(const  char *duration)
     {
         const AVFilter *aformat = avfilter_get_by_name("aformat");
         snprintf(args, sizeof(args),
-                 "sample_rates=%d:sample_fmts=%s:channel_layouts=0x%I64x",
+                 "sample_rates=%d:sample_fmts=%s:channel_layouts=%d",
                  audio_output_info_->samplerate,
                  av_get_sample_fmt_name(audio_output_info_->format),
-                 av_get_default_channel_layout(audio_output_info_->channels));
+                 (int)av_get_default_channel_layout(audio_output_info_->channels));
         printf("[AudioMixer] output args: %s\n", args);
         audio_output_info_->filterCtx = avfilter_graph_alloc_filter(filter_graph_, aformat,
                                                                     "aformat");
@@ -252,8 +254,10 @@ int AudioMixer::addFrame(uint32_t index, uint8_t *inBuf, uint32_t size)
         return -1;
     }
 
-    if(inBuf && size > 0) {
-        std::shared_ptr<AVFrame> avFrame(av_frame_alloc(), [](AVFrame *ptr) { av_frame_free(&ptr); });
+    if (inBuf && size > 0)
+    {
+        std::shared_ptr<AVFrame> avFrame(av_frame_alloc(), [](AVFrame *ptr)
+                                         { av_frame_free(&ptr); });
 
         avFrame->sample_rate = iter->second.samplerate;
         avFrame->format = iter->second.format;
@@ -267,13 +271,14 @@ int AudioMixer::addFrame(uint32_t index, uint8_t *inBuf, uint32_t size)
         {
             return -1;
         }
-    } else {
+    }
+    else
+    {
         if (av_buffersrc_add_frame(iter->second.filterCtx, NULL) != 0)
         {
             return -1;
         }
     }
-
 
     return 0;
 }
@@ -287,7 +292,8 @@ int AudioMixer::getFrame(uint8_t *outBuf, uint32_t maxOutBufSize)
         return -1;
     }
 
-    std::shared_ptr<AVFrame> avFrame(av_frame_alloc(), [](AVFrame *ptr) { av_frame_free(&ptr); });
+    std::shared_ptr<AVFrame> avFrame(av_frame_alloc(), [](AVFrame *ptr)
+                                     { av_frame_free(&ptr); });
 
     int ret = av_buffersink_get_frame(audio_sink_info_->filterCtx, avFrame.get());
 

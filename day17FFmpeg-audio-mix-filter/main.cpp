@@ -22,17 +22,17 @@ int main(int argc, char **argv)
     int len1 = 0, len2 = 0;
     uint8_t buf1[PCM1_FRAME_SIZE];
     uint8_t buf2[PCM2_FRAME_SIZE];
-    FILE *file1 = fopen("48000_2_f32le.pcm", "rb");
+    FILE *file1 = fopen("/Users/chenzirui/Desktop/YSPCode/day17FFmpeg-audio-mix-filter/cmake/48000_2_f32le.pcm", "rb");
     if(!file1) {
         printf("fopen 48000_2_f32le.pcm failed\n");
         return -1;
     }
-    FILE *file2 = fopen("48000_2_s16le.pcm", "rb");
+    FILE *file2 = fopen("/Users/chenzirui/Desktop/YSPCode/day17FFmpeg-audio-mix-filter/cmake/48000_2_s16le.pcm", "rb");
     if(!file2) {
         printf("fopen 48000_2_s16le.pcm failed\n");
         return -1;
     }
-    FILE* file_out = fopen("output.pcm", "wb");
+    FILE* file_out = fopen("/Users/chenzirui/Desktop/YSPCode/day17FFmpeg-audio-mix-filter/cmake/output.pcm", "wb");
     if(!file_out) {
         printf("fopen output.pcm failed\n");
         return -1;
@@ -53,9 +53,9 @@ int main(int argc, char **argv)
                     break;
                 }
             } else {
-                if(file1_finish == 0) {
-                    file1_finish = 1;
-                    if(amix.addFrame(0, NULL, 0) < 0) {     // 空包冲刷，人家才知道你某一路某一数据
+                if(file1_finish == 0) { //防止反复flush
+                    file1_finish = 1; 
+                    if(amix.addFrame(0, NULL, 0) < 0) {     // 空包冲刷，人家才知道你某一路没数据了
                         printf("amix.addFrame(0, buf1, len1) failed\n");
                     }
                 }
@@ -63,14 +63,14 @@ int main(int argc, char **argv)
 
             if (len2 > 0)
             {
-                if(amix.addFrame(1, buf2, len2) < 0) {   // 空包冲刷，人家才知道你某一路某一数据
+                if(amix.addFrame(1, buf2, len2) < 0) {   
                     printf("amix.addFrame(1, buf2, len2) failed\n");
                     break;
                 }
             } else {
                 if(file2_finish == 0) {
                     file2_finish = 1;
-                    if(amix.addFrame(1, NULL, 0) < 0) {
+                    if(amix.addFrame(1, NULL, 0) < 0) {  // 空包冲刷，人家才知道你某一路没数据了
                         printf("amix.addFrame(1, buf2, len2) failed\n");
                     }
                 }
@@ -89,7 +89,7 @@ int main(int argc, char **argv)
         {
             printf("two file finish\n");
             break;
-        }
+        } 
     }
     printf("end, out_size:%u\n", out_size);
     amix.exit();

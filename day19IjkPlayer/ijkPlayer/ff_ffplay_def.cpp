@@ -2,7 +2,7 @@
 #include "log.h"
 #include <string>
 #include <sstream>
-#include "util.h"
+#include "util_player.h"
 #include <vector>
 
 static AVPacket flush_pkt;
@@ -113,6 +113,7 @@ void packet_queue_flush(PacketQueue *q)
     q->nb_packets = 0;
     q->size = 0;
     q->duration = 0;
+    init_packet_queue_info(q);
     SDL_UnlockMutex(q->mutex);
 }
 
@@ -211,6 +212,7 @@ int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block, int *serial)
     return ret;
 }
 
+/* 遍历packet_queue中所有元素，组织信息打印 */
 void init_packet_queue_info(PacketQueue *q)
 {
     SDL_LockMutex(q->mutex);
@@ -223,15 +225,14 @@ void init_packet_queue_info(PacketQueue *q)
         {
             node += "pkt_" + std::to_string(index) + "->";
         }
-        else if (q->nb_packets - 1 == index)
+        else if (pkt && q->nb_packets - 1 == index)
         {
             node += "pkt_" + std::to_string(index);
-            q->print_to_string = node;
-            player_log_info(PACKET_QUEUE_TAG, node.c_str());
         }
+
         index++;
     }
-
+    q->print_to_string = node;
     SDL_UnlockMutex(q->mutex);
 }
 
@@ -248,59 +249,166 @@ void create_packet_queue_info(PacketQueue *q, std::vector<std::string> &input)
 }
 
 /* FrameQueue 的操作 */
-// TODO
+// 初始化 FrameQueue，视频和音频 keep last 设置为 1，字幕设置为 0
 int frame_queue_init(FrameQueue *f, PacketQueue *pktq, int max_size)
 {
+    int i;
+    memset(f, 0, sizeof(FrameQueue));
+    if (!(f->mutex = SDL_CreateMutex()))
+    {
+        player_log_error(FRAME_QUEUE_TAG, "SDL_CreateMutex fail in frame_queue_init");
+        av_log(NULL, AV_LOG_FATAL, "SDL_CreateMutex(): %s\n", SDL_GetError());
+        return AVERROR(ENOMEM);
+    }
+    if (!(f->cond = SDL_CreateCond()))
+    {
+        player_log_error(FRAME_QUEUE_TAG, "SDL_CreateCond fail in frame_queue_init");
+        av_log(NULL, AV_LOG_FATAL, "SDL_CreateCond(): %s\n", SDL_GetError());
+        return AVERROR(ENOMEM);
+    }
+    f->pktq = pktq;
+    f->max_size = FFMIN(max_size, FRAME_QUEUE_SIZE);
+    for (i = 0; i < f->max_size; i++)
+    {
+        if (!(f->queue[i].frame = av_frame_alloc()))
+        {
+            player_log_error(FRAME_QUEUE_TAG, "av_frame_alloc fail in frame_queue_init");
+            return AVERROR(ENOMEM);
+        }
+    }
     return 0;
 }
 
 void frame_queue_destory(FrameQueue *f)
 {
+    int i;
+    for (i = 0; i < f->max_size; i++)
+    {
+        Frame *vp = &f->queue[i];
+        av_frame_unref(vp->frame); // 释放 AVFrame 的数据缓存区，而不是释放 AVFrame
+        av_frame_free(&vp->frame); // 释放 AVFrame 本身
+    }
+    SDL_DestroyMutex(f->mutex);
+    SDL_DestroyCond(f->cond);
 }
 
 void frame_queue_signal(FrameQueue *f)
 {
+    SDL_LockMutex(f->mutex);
+    SDL_CondSignal(f->cond);
+    SDL_UnlockMutex(f->mutex);
 }
-
+/* 获取队列当前Frame, 在调用该函数前先调用frame_queue_nb_remaining确保有frame可读  */
 Frame *frame_queue_peek(FrameQueue *f)
 {
-    return nullptr;
+    return &f->queue[f->rindex % f->max_size];
 }
 
+/* 获取当前Frame的下一Frame, 此时要确保queue里面至少有2个Frame */
 Frame *frame_queue_peek_next(FrameQueue *f)
 {
-    return nullptr;
+    return &f->queue[(f->rindex + 1) % f->max_size];
 }
 
 Frame *frame_queue_peek_last(FrameQueue *f)
 {
-    return nullptr;
+    return &f->queue[f->rindex];
 }
 
+/* 获取可写指针 */
 Frame *frame_queue_peek_writable(FrameQueue *f)
 {
-    return nullptr;
+    SDL_LockMutex(f->mutex);
+    /** 阻塞等待,直到有put frame 的空间
+     * 生产者线程生产资源（产生一个对象），生产时间不确定
+     * 缓冲区中里面没有剩余的空间时等待
+     */
+    /** 关于为什么使用while？多个消费者，一个生产者
+     * ⚠️：一个生产者 一个消费者，这里可以使用 if。
+     * eg：消费者 1、2 同时阻塞在SDL_CondWait(f->cond, f->mutex)上。
+     * 此时，消费者1、2，被(生产者)条件变量同时被唤醒cond_signal，假设消费者1线程拿到锁，
+     * 消费者线程2堵塞在这把锁上，然后消费者1从公共区域中拿数据后，释放锁，消费者线程2就拿到锁了，
+     * 不堵塞，但是消费者 1 此时消费过数据了，此时的共享数据区域发生了改变。
+     * 所以消费者2再被唤醒时，准备从公共区域中拿数据，但可能没数据了（被消费者1给消费了）。
+     * 所以消费者1 释放锁时，消费者 2 虽然之前被 cond唤醒了，但是共享数据区域发生了改变，
+     * 所以此时，消费者 2 需要重新判断条件变量是否满足，如果满足，还是走到 while 循环里面
+     * SDL_CondWait，继续等待。否则直接向下走。如果用 if 就不会在重新判断一次：
+     * f->size >= f->max_size && !f->pktq->abort_request，如果是 while，
+     * SDL_CondWait在解除阻塞后，还是会执行一次判断的。
+     *
+     */
+    while (f->size >= f->max_size &&
+           !f->pktq->abort_request)
+    {
+        /** 条件变量：某个条件满足时（就是 while 里面的逻辑），线程继续执行，否则等待（阻塞）
+         * 条件变量本身不是锁，但是它可以造成线程堵塞，通常与互斥锁配合，给多线程提供
+         * 一个会合的场所。
+         *
+         * （1）阻塞等待条件变量满足：如果条件变量cond 不满足，就一直阻塞等待
+         * （2）解锁已经成功加锁的信号量（也就是解锁f->mutex），这个锁主要是维持 1 的原子性
+         * （3）当条件满足，函数返回，解除阻塞，并重新申请加互斥锁（f->mutex）,加锁条件变量。
+         */
+        SDL_CondWait(f->cond, f->mutex);
+    }
+    SDL_UnlockMutex(f->mutex);
+
+    if (f->pktq->abort_request) /* 检查是否要退出 */
+    {
+        return nullptr;
+    }
+    return &f->queue[f->windex];
 }
 
+/* 获取可读指针 */
 Frame *frame_queue_peek_readable(FrameQueue *f)
 {
-    return nullptr;
+    SDL_LockMutex(f->mutex);
+
+    while (f->size <= 0 && !f->pktq->abort_request)
+    {
+        SDL_CondWait(f->cond, f->mutex);
+    }
+    SDL_UnlockMutex(f->mutex);
+
+    if (!f->pktq->abort_request)
+        return nullptr;
+
+    return &(f->queue[f->rindex % f->max_size]);
 }
 
+/* 更新写指针 */
 void frame_queue_push(FrameQueue *f)
 {
+    if (++f->windex == f->max_size)
+        f->windex = 0;
+    SDL_LockMutex(f->mutex);
+    f->size++;
+    SDL_CondSignal(f->cond); // 当_readable在等待时则可以唤醒
+    SDL_UnlockMutex(f->mutex);
 }
 
+/* 释放当前Frame，并更新读所有rindex */
 void frame_queue_next(FrameQueue *f)
 {
+    av_frame_unref(f->queue[f->rindex].frame);
+    if (++f->rindex == f->max_size)
+    {
+        f->rindex = 0;
+    }
+    SDL_LockMutex(f->mutex);
+    f->size--;
+    SDL_CondSignal(f->cond);
+    SDL_UnlockMutex(f->mutex);
 }
 
 int frame_queue_nb_remaining(FrameQueue *f)
 {
-    return 0;
+    return f->size;
 }
 
+/* return last shown position */
 int64_t frame_queue_last_pos(FrameQueue *f)
 {
-    return 0;
+    Frame *fp = &f->queue[f->rindex];
+    return fp == nullptr ? -1 : f->rindex;
 }

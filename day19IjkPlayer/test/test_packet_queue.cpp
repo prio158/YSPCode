@@ -35,11 +35,13 @@ int main()
     int serial;
     AVPacket *pkt = new AVPacket();
     packet_queue_get(packet_queue, pkt, 0, &serial);
-    player_log_info(PACKET_QUEUE_TAG,packet_queue->print_to_string.c_str());
+    player_log_info(PACKET_QUEUE_TAG, packet_queue->print_to_string.c_str());
+    packet_queue_get(packet_queue, pkt, 0, &serial);
+    player_log_info(PACKET_QUEUE_TAG, packet_queue->print_to_string.c_str());
 
     // // flush queue
-    // packet_queue_flush(packet_queue);
-    // print_packet_queue(packet_queue);
+    packet_queue_flush(packet_queue);
+    player_log_info(PACKET_QUEUE_TAG, packet_queue->print_to_string.c_str());
 
     // // destory queue
     // packet_queue_destroy(packet_queue);

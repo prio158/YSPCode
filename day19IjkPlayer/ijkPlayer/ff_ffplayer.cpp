@@ -6,10 +6,12 @@
 
 FFPlayer::FFPlayer()
 {
+    player_log_info(FFPlayer_TAG, "FFPlayer构造");
 }
 
 FFPlayer::~FFPlayer()
 {
+    player_log_info(FFPlayer_TAG, "FFPlayer析构");
 }
 
 int FFPlayer::ffp_create()
@@ -34,10 +36,10 @@ int FFPlayer::ffp_prepare_async_l(char *file_name)
     return reval;
 }
 
+// TODO
 int FFPlayer::ffp_start_l()
 {
     player_log_info(FFPlayer_TAG, "ffp_start_l");
-    std::cout << __FUNCTION__;
     return 0;
 }
 
@@ -66,6 +68,11 @@ int FFPlayer::stream_open(const char *file_name)
     {
         goto fail;
     }
+
+    // 初始化Packet包队列
+    if (packet_queue_init(&videoq) < 0 ||
+        packet_queue_init(&audioq) < 0)
+        goto fail;
 
     // 初始化时钟
 
@@ -135,13 +142,13 @@ int FFPlayer::read_thread()
 }
 
 int FFPlayer::stream_component_open(int stream_index)
-{   
-    //TODO
+{
+    // TODO
     return 0;
 }
 
 int FFPlayer::stream_component_close(int stream_index)
 {
-    //TODO
+    // TODO
     return 0;
 }

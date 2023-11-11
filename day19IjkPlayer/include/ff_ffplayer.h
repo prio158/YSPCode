@@ -46,6 +46,7 @@ public:
 /* 信号通知方法 */
 inline static void ffp_notify_msg1(FFPlayer *ffp, int what)
 {
+    
 }
 
 inline static void ffp_notify_msg2(FFPlayer *ffp, int what, int arg1)

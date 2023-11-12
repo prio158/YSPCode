@@ -6,10 +6,11 @@
 #include "ffmsg_queue.h"
 #include "ff_ffplay_def.h"
 
+//TODO:还没写完
 class FFPlayer
 {
 
-private:
+public:
     char *input_filename_;
     const char *FFPlayer_TAG = "FFPlayer";
     int abort_request = 0;
@@ -46,23 +47,27 @@ public:
 /* 信号通知方法 */
 inline static void ffp_notify_msg1(FFPlayer *ffp, int what)
 {
-    
+    msg_queue_put_simple3(&ffp->msg_queue_, what, 0, 0);
 }
 
 inline static void ffp_notify_msg2(FFPlayer *ffp, int what, int arg1)
 {
+    msg_queue_put_simple3(&ffp->msg_queue_, what, arg1, 0);
 }
 
 inline static void ffp_notify_msg3(FFPlayer *ffp, int what, int arg1, int arg2)
 {
+    msg_queue_put_simple3(&ffp->msg_queue_, what, arg1, arg2);
 }
 
 inline static void ffp_notify_msg4(FFPlayer *ffp, int what, int arg1, int arg2, void *obj, int obj_len)
 {
+    msg_queue_put_simple4(&ffp->msg_queue_, what, arg1, arg2, obj, obj_len);
 }
 
 inline static void ffp_remove_msg(FFPlayer *ffp, int what)
 {
+    msg_queue_remove(&ffp->msg_queue_, what);
 }
 
 #endif

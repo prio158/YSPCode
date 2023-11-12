@@ -141,14 +141,97 @@ int FFPlayer::read_thread()
     return 0;
 }
 
+/* 打开指定stream对应解码器，创建解码线程、以及初始化对应的输出 */
 int FFPlayer::stream_component_open(int stream_index)
 {
-    // TODO
-    return 0;
+    AVCodecContext *avctx;
+    AVCodec *codec;
+    int sample_rate;
+    int nb_channels;
+    int64_t channel_layout;
+    int ret = 0;
+
+    /* stream_index是否合法 */
+    if (stream_index < 0 || stream_index >= ic->nb_streams)
+    {
+        return -1;
+    }
+    /* 分配编码器上下文 */
+    avctx = avcodec_alloc_context3(nullptr);
+    if (!avctx)
+        return AVERROR(ENOMEM);
+
+    /* 将码流中的编解码器信息拷贝到新分配的编解码器上下文中 */
+    ret = avcodec_parameters_to_context(avctx, ic->streams[stream_index]->codecpar);
+    if (ret < 0)
+        goto fail;
+
+    /* 设置 time base */
+    avctx->pkt_timebase = ic->streams[stream_index]->time_base;
+
+    codec = avcodec_find_decoder(avctx->codec_id);
+    if (!codec)
+    {
+        av_log(NULL, AV_LOG_WARNING,
+               "No decoder could be found for codec %s\n", avcodec_get_name(avctx->codec_id));
+        ret = AVERROR(EINVAL);
+        goto fail;
+    }
+
+    if ((ret = avcodec_open2(avctx, codec, nullptr)) < 0)
+    {
+        goto fail;
+    }
+
+    switch (avctx->codec_type)
+    {
+    case AVMEDIA_TYPE_AUDIO:
+        /* 从AVCodecContext 中获取音频格式参数 */
+        sample_rate = avctx->sample_rate;
+        nb_channels = avctx->channels;
+        channel_layout = avctx->channel_layout;
+        /* 准备音频输出 */
+        if ((ret = audio_open(channel_layout, nb_channels, sample_rate, &audio_tgt)) < 0)
+        {
+            goto fail;
+        }
+        audio_hw_buf_size = ret;
+        audio_src = audio_tgt; // 暂且将数据源参数等同于目标输出参数
+        audio_buf_size = 0;
+        audio_buf_index = 0;
+        audio_stream = stream_index;          // 获取 audio 的 stream 索引
+        audio_st = ic->streams[stream_index]; // 获取 audio 的 stream 指针
+
+        
+
+
+        break;
+
+    default:
+        break;
+    }
+
+fail:
+    avcodec_free_context(&avctx);
+
+out:
+    return ret;
 }
 
 int FFPlayer::stream_component_close(int stream_index)
 {
     // TODO
+    return 0;
+}
+
+/**
+ * @param wanted_channel_layout
+ * @param
+ * @param
+ * @param
+ * @return 读取的字节数
+ */
+int FFPlayer::audio_open(int64_t wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate, AudioParams *audio_hw_params)
+{
     return 0;
 }

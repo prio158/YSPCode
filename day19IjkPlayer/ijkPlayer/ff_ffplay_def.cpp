@@ -315,7 +315,7 @@ Frame *frame_queue_peek_last(FrameQueue *f)
     return &f->queue[f->rindex];
 }
 
-/* 获取可写指针 */
+/* 获取可写指针,入队入口 */
 Frame *frame_queue_peek_writable(FrameQueue *f)
 {
     SDL_LockMutex(f->mutex);

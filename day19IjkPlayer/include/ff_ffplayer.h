@@ -5,8 +5,9 @@
 #include "ff_ffplayer.h"
 #include "ffmsg_queue.h"
 #include "ff_ffplay_def.h"
+#include "Decoder.h"
 
-//TODO:还没写完
+// TODO:还没写完
 class FFPlayer
 {
 
@@ -25,6 +26,23 @@ public:
     // Packet队列
     PacketQueue audioq;
     PacketQueue videoq;
+    /* Format I/O context. */
+    AVFormatContext *ic = nullptr;
+    struct AudioParams audio_src; // 保存最新解码的音频参数
+    struct AudioParams audio_tgt; // 保存SDL音频输出需要的参数
+
+    int audio_hw_buf_size = 0; // SDL音频缓冲区的大小(字节为单位)
+    // 指向待播放的一帧音频数据，指向的数据区将被拷入SDL音频缓冲区。若经过重采样则指向audio_buf1，
+    // 否则指向frame中的音频
+    uint8_t *audio_buf = nullptr;     // 指向需要重采样的数据
+    uint8_t *audio_buf1 = nullptr;    // 指向重采样后的数据
+    unsigned int audio_buf_size = 0;  // 待播放的一帧音频数据(audio_buf指向)的大小
+    unsigned int audio_buf1_size = 0; // 申请到的音频缓冲区audio_buf1的实际尺寸
+    int audio_buf_index = 0;          // 更新拷贝位置 当前音频帧中已拷入SDL音频缓冲区
+    AVStream *audio_st = nullptr;     // 音频流
+    AVStream *video_st = nullptr;     // 视频流
+    Decoder auddec;                   // 音频解码器
+    Decoder viddec;                   // 视频解码器
 
 public:
     FFPlayer();
@@ -42,6 +60,9 @@ public:
     int stream_component_open(int stream_index);
     /* 关闭指定stream的解码线程，释放解码器资源 */
     int stream_component_close(int stream_index);
+    int audio_open(int64_t wanted_channel_layout,
+                   int wanted_nb_channels, int wanted_sample_rate,
+                   struct AudioParams *audio_hw_params);
 };
 
 /* 信号通知方法 */

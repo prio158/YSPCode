@@ -5,6 +5,22 @@
 extern "C"
 {
 #endif
+#include "libavutil/avstring.h"
+#include "libavutil/eval.h"
+#include "libavutil/mathematics.h"
+#include "libavutil/pixdesc.h"
+#include "libavutil/imgutils.h"
+#include "libavutil/dict.h"
+#include "libavutil/parseutils.h"
+#include "libavutil/samplefmt.h"
+#include "libavutil/avassert.h"
+#include "libavutil/time.h"
+#include "libavformat/avformat.h"
+#include "libavdevice/avdevice.h"
+#include "libswscale/swscale.h"
+#include "libavutil/opt.h"
+#include "libavcodec/avfft.h"
+#include "libswresample/swresample.h"
 #include <libavcodec/avcodec.h>
 #include <SDL2/SDL.h>
 #ifdef __cplusplus
@@ -68,6 +84,17 @@ typedef struct FrameQueue
     SDL_cond *cond;                // 条件变量
     PacketQueue *pktq;             // 数据包缓冲队列
 } FrameQueue;
+
+/* 音频参数 */
+typedef struct AudioParams
+{
+    int freq;                // 采样率
+    int channels;            // 通道数
+    int64_t channel_layout;  // 通道布局
+    enum AVSampleFormat fmt; // 音频采样格式
+    int frame_size;          // 一个采样单元占用的字节数
+    int bytes_per_sec;       // 一秒时间的字节数，比如采样率48KHZ，2 channels，16bit=48000*2*16/8 =192000byte
+} AudioParams;
 
 // 队列相关
 int packet_queue_put_private(PacketQueue *q, AVPacket *pkt);

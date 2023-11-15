@@ -31,6 +31,7 @@ public:
     int audio_thread(void *arg);
     int video_thread(void *arg);
     int get_video_frame(AVFrame *frame);
+    void decoder_destroy();
 };
 
 #endif

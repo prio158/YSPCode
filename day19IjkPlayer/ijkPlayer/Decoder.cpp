@@ -1,4 +1,5 @@
 #include "ff_ffplayer.h"
+#include "Decoder.h"
 
 Decoder::Decoder()
 {
@@ -239,4 +240,9 @@ int Decoder::get_video_frame(AVFrame *frame)
     {
     }
     return got_picture;
+}
+void Decoder::decoder_destroy()
+{
+    av_packet_unref(&pkt_);
+    avcodec_free_context(&avctx_);
 }

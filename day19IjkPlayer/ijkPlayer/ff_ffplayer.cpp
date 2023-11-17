@@ -125,8 +125,131 @@ void FFPlayer::stream_close()
 // TODO
 int FFPlayer::read_thread()
 {
+    /* 1、定义变量，已经初始化操作 */
+    int err, i, ret;
+    int st_index[AVMEDIA_TYPE_NB];
+    AVPacket pkt1;
+    AVPacket *pkt = &pkt1;
 
+    // 初始化为-1,如果一直为-1说明没相应steam
+    memset(st_index, -1, sizeof(st_index));
+    video_stream = -1;
+    audio_stream = -1;
+    eof = 0;
+
+    /* 2、创建上下⽂结构体，这个结构体是最上层的结构体，表示IO上下⽂  */
+    ic = avformat_alloc_context();
+
+    /* 3、设置中断耗时回调 */
+    ic->interrupt_callback.callback = interrupt_cb;
+    ic->interrupt_callback.opaque = this; // 传入参数，就是FFPlay
+
+    /* 4、打开媒体文件 */
+    ret = avformat_open_input(&ic, input_filename_, nullptr, nullptr);
+    if (ret < 0)
+    {
+        player_log_error(FFPlayer_TAG, "avformat_open_input fail in read_thread");
+        goto fail;
+    }
+    player_log_info(FFPlayer_TAG, "avformat_open_input success in read_thread");
+    ffp_notify_msg1(this, FFP_MSG_OPEN_INPUT);
+
+    /* 5、打开文件后就能从AVFormatContext中读取流信息，一般是调用avformat_find_stream_info获取 */
+    ret = avformat_find_stream_info(ic, nullptr);
+    if (ret < 0)
+    {
+        player_log_error(FFPlayer_TAG, "avformat_find_stream_info fail in read_thread");
+        goto fail;
+    }
+    player_log_info(FFPlayer_TAG, "avformat_find_stream_info success in read_thread");
+    ffp_notify_msg1(this, FFP_MSG_FIND_STREAM_INFO);
+
+    /* 5、利用 av_find_best_stream */
+    st_index[AVMEDIA_TYPE_VIDEO] = av_find_best_stream(ic, AVMEDIA_TYPE_VIDEO, st_index[AVMEDIA_TYPE_VIDEO], -1, nullptr, 0);
+    st_index[AVMEDIA_TYPE_AUDIO] = av_find_best_stream(ic, AVMEDIA_TYPE_AUDIO, st_index[AVMEDIA_TYPE_AUDIO], -1, nullptr, 0);
+
+    /* 6、打开音频、视频解码器，创建对应的解码线程 */
+    if (st_index[AVMEDIA_TYPE_VIDEO] >= 0 && stream_component_open(st_index[AVMEDIA_TYPE_VIDEO]) < 0)
+    {
+        player_log_error(FFPlayer_TAG, "stream_component_open fail in read_thread");
+        goto fail;
+    }
+
+    if (st_index[AVMEDIA_TYPE_AUDIO] >= 0 && stream_component_open(st_index[AVMEDIA_TYPE_AUDIO]) < 0)
+    {
+        player_log_error(FFPlayer_TAG, "stream_component_open fail in read_thread");
+        goto fail;
+    }
+    ffp_notify_msg1(this, FFP_MSG_COMPONENT_OPEN);
+
+    if (video_stream < 0 && audio_stream < 0)
+    {
+        player_log_error(FFPlayer_TAG, "Failed to open file '%s' or configure filtergraph");
+        av_log(NULL, AV_LOG_FATAL, "Failed to open file '%s' or configure filtergraph\n",
+               input_filename_);
+        ret = -1;
+        goto fail;
+    }
+    ffp_notify_msg1(this, FFP_MSG_PREPARED);
+
+    while (1)
+    {
+        if (abort_request)
+        {
+            break;
+        }
+        /* 7、读取 frame，得到的是音视频分离后的数据*/
+        /* 读取解码前的数据到packet中,此外这个 pkt 需要我们自己释放 */
+        ret = av_read_frame(ic, pkt);
+        // 出错或者读取完毕
+        if (ret < 0)
+        {
+            // 读取完毕
+            if ((ret == AVERROR_EOF || avio_feof(ic->pb) && !eof))
+            {
+                eof = 1;
+            }
+            // IO异常退出循环
+            if (ic->pb && ic->pb->error)
+            {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10)); // 读取完数据了，这里可以使用timeout的方式休眠等待下一步的检测
+            continue;
+        }
+        else
+        {
+            eof = 0;
+        }
+        // 插入队列  先只处理音频包
+        if (pkt->stream_index == audio_stream)
+        {
+            player_log_info(FFPlayer_TAG, "audio pkt put packet queue in read thread");
+            packet_queue_put(&audioq, pkt);
+        }
+        else if (pkt->stream_index == video_stream)
+        {
+            player_log_info(FFPlayer_TAG, "video pkt put packet queue in read thread");
+            packet_queue_put(&videoq, pkt);
+        }
+        else
+        {
+            av_packet_unref(pkt); // // 不入队列则直接释放数据
+        }
+    }
+
+fail:
     return 0;
+}
+
+static int interrupt_cb(void *ctx)
+{
+    static int64_t s_pre_time = 0;
+    int64_t cur_time = av_gettime_relative() / 1000;
+    //    printf("decode_interrupt_cb interval:%lldms\n", cur_time - s_pre_time);
+    s_pre_time = cur_time;
+    FFPlayer *is = (FFPlayer *)ctx;
+    return is->abort_request;
 }
 
 /* 打开指定stream对应解码器，创建解码线程、以及初始化对应的输出 */
@@ -199,9 +322,18 @@ int FFPlayer::stream_component_open(int stream_index)
         break;
 
     case AVMEDIA_TYPE_VIDEO:
-
+        video_stream = stream_index;          // 获取video的stream索引
+        video_st = ic->streams[stream_index]; // 获取video的stream指针
+                                              //        // 初始化ffplay封装的视频解码器
+        viddec.decoder_init(avctx, &videoq);  //  is->continue_read_thread
+        // 启动视频频解码线程
+        if ((ret = viddec.decoder_start(AVMEDIA_TYPE_VIDEO, "video_decoder", this)) < 0)
+            goto out;
+        break;
+    default:
         break;
     }
+    goto out;
 
 fail:
     avcodec_free_context(&avctx);
@@ -317,7 +449,7 @@ int FFPlayer::audio_open(int64_t wanted_channel_layout, int wanted_nb_channels, 
 
 void FFPlayer::audio_close()
 {
-    SDL_CloseAudio(); 
+    SDL_CloseAudio();
 }
 
 /* prepare a new audio buffer */
@@ -338,14 +470,14 @@ static void sdl_audio_callback(void *opaque, Uint8 *steam, int len)
         /* 每次判断缓存区是否填满，如果没有填满，则检查解码得到的buf是否用完
            (1)如果is->audio_buf_index < is->audio_buf_size则说明
             is->audio_buf没有用完，则继续从buf中拷贝到stream，并记录已拷贝
-            的字节数，移动stream指针以及索引，记录stream缓冲区剩余要拷贝的字节数 
+            的字节数，移动stream指针以及索引，记录stream缓冲区剩余要拷贝的字节数
 
            (2)如果is->audio_buf_index >= is->audio_buf_size,
            代表audio_buf消耗完了，则调用audio_decode_frame重新填充audio_buf
          */
         if (is->audio_buf_index >= is->audio_buf_size)
         {
-            /* 
+            /*
                audio_decode_frame中：
                1、取出FrameQueue中队头的 Frame
                2、将 Frame（重采样后) 拷贝到 is->audio_buf
@@ -375,12 +507,13 @@ static void sdl_audio_callback(void *opaque, Uint8 *steam, int len)
         len -= len1;
         steam += len1;
         /* 更新is->audio_buf_index，指向audio_buf中未被拷贝到stream的数据（剩余数据）的起始位置 */
-        is->audio_buf_index += len1;    
+        is->audio_buf_index += len1;
     }
 
-    if(!isnan(is->audio_clock)){
-        //设置时钟
-        set_clock(&is->audclk,is->audio_clock);
+    if (!isnan(is->audio_clock))
+    {
+        // 设置时钟
+        set_clock(&is->audclk, is->audio_clock);
     }
 }
 

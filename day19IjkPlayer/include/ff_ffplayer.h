@@ -47,6 +47,7 @@ public:
     struct SwrContext *swr_ctx = nullptr;         // 音频重采样context
     std::thread *video_refresh_thread_ = nullptr; // 视频画面输出相关
     Clock audclk;                                 // 音频时钟
+    int eof = 0;                                  // 文件结尾标志位
 
 public:
     FFPlayer();

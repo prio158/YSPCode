@@ -149,4 +149,15 @@ void set_clock_at(Clock *c, double pts, double time);
 void set_clock(Clock *c, double pts);
 void init_clock(Clock *c);
 
+/**
+ *音视频同步方式，缺省以音频为基准
+ */
+enum {
+    AV_SYNC_UNKNOW_MASTER = -1,
+    AV_SYNC_AUDIO_MASTER,                   // 以音频为基准
+    AV_SYNC_VIDEO_MASTER,                   // 以视频为基准
+//    AV_SYNC_EXTERNAL_CLOCK,                 // 以外部时钟为基准，synchronize to an external clock */
+};
+
+
 #endif

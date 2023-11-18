@@ -414,26 +414,35 @@ int64_t frame_queue_last_pos(FrameQueue *f)
 }
 
 /**
- * 获取到的实际上是:最后一帧的pts 加上 从处理最后一帧开始到现在的时间,具体参考set_clock_at 和get_clock的代码
- * c->pts_drift=最后一帧的pts-从处理最后一帧时间
- * clock=c->pts_drift+现在的时候
- * get_clock(&is->vidclk) ==is->vidclk.pts, av_gettime_relative() / 1000000.0 -is->vidclk.last_updated  +is->vidclk.pts
- */
-double get_clock(Clock *c)
-{
-    double time = av_gettime_relative() / 1000000.0;
-    return c->pts_drift + time  ;
-}
-
+ *  进行对时 
+ *  https://zhuanlan.zhihu.com/p/44615185
+ *  假设这时的pts是落后系统时间time的，那么计算pts_drift = pts - time。
+ * */
 void set_clock_at(Clock *c, double pts, double time)
 {
     c->pts		= pts;                      /* 当前帧的pts */
-//    c->last_updated = time;                 /* 最后更新的时间，实际上是当前的一个系统时间 */
+//    c->last_updated = time;                
     c->pts_drift	= c->pts - time;        /* 当前帧pts和系统时间的差值，正常播放情况下两者的差值应该是比较固定的，因为两者都是以时间为基准进行线性增长 */
 }
 
-void set_clock(Clock *c, double pts)
+/**
+ * 接着，过了一会儿，且在下次对时前，通过get_clock来查询时间，因为这时的pts已经过时，
+ * 不能直接拿pts当做这个时钟的时间。不过我们前面计算过pts_drift，也就是pts和time的差值，
+ * 所以我们可以通过当前时刻的系统时间来估算这个时刻的pts：pts = time + pts_drift.
+ * 
+ * 当然，由于pts_drift是一直在变动的(drift与漂移、抖动的意思)，所以get_clock是估算值，
+ * 真实的pts可能落在比如图示虚线圆的位置。
+ */
+double get_clock(Clock *c)
 {
+    double time = av_gettime_relative() / 1000000.0; 
+    return c->pts_drift + time; 
+}
+
+
+void set_clock(Clock *c, double pts)
+{   
+    /* 系统时钟 */
     double time = av_gettime_relative() / 1000000.0;
     set_clock_at(c, pts, time);
 }

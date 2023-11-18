@@ -41,7 +41,12 @@ int FFPlayer::ffp_prepare_async_l(char *file_name)
     return reval;
 }
 
-// TODO
+void FFPlayer::add_video_refresh_callback(std::function<int(const Frame *)> callback)
+{
+    video_refresh_callback_ = callback;
+}
+
+
 int FFPlayer::ffp_start_l()
 {
     player_log_info(FFPlayer_TAG, "ffp_start_l");
@@ -122,7 +127,6 @@ void FFPlayer::stream_close()
     }
 }
 
-// TODO
 int FFPlayer::read_thread()
 {
     /* 1、定义变量，已经初始化操作 */
@@ -240,6 +244,99 @@ int FFPlayer::read_thread()
 
 fail:
     return 0;
+}
+
+// 每帧休眠10ms,为什么每帧要休眠10ms？这是为了保证画面的稳定输出
+#define REFRESH_RATE 0.01
+int FFPlayer::video_refresh_thread()
+{
+    double remaining_time = 0.0;
+    while (!abort_request)
+    {
+        if (remaining_time > 0.0)
+            av_usleep((int)(int64_t)(remaining_time * 1000000.0));
+        remaining_time = REFRESH_RATE;
+        video_refresh(&remaining_time);
+    }
+    return 0;
+}
+
+/*刷新显示画面,读取frame 显示 */
+void FFPlayer::video_refresh(double *remaining_time)
+{
+    Frame *vp = nullptr;
+    if (video_st)
+    {
+        if (frame_queue_nb_remaining(&pictq) == 0)
+        {
+            player_log_info(FFPlayer_TAG, "pictq size=0 in video_refresh");
+            return;
+        }
+        vp = frame_queue_peek(&pictq);
+
+        // 一般做音视频同步，都是视频向音频对齐
+        // vp->pts - af->pts
+        double diff = vp->pts - get_clock(&audclk);
+        std::string printStr = "vp->pts - af->pts:" + std::to_string(diff) + " in video_refresh";
+        player_log_info(FFPlayer_TAG, printStr.c_str());
+
+        if (diff > 0)
+        {
+            *remaining_time = FFMIN(*remaining_time, diff);
+            return;
+        }
+
+        if (video_refresh_callback_)
+        {
+            video_refresh_callback_(vp);
+        }
+        else
+        {
+            player_log_error(FFPlayer_TAG, "video_refresh_callback_ is null in video_refresh");
+        }
+        frame_queue_next(&pictq);
+    }
+}
+
+/* 获取音视频同步的方式 */
+int FFPlayer::get_master_sync_type()
+{
+    if (av_sync_type == AV_SYNC_VIDEO_MASTER)
+    {
+        if (video_st)
+            return AV_SYNC_VIDEO_MASTER;
+        else
+            return AV_SYNC_AUDIO_MASTER;
+    }
+    else if (av_sync_type == AV_SYNC_AUDIO_MASTER)
+    {
+        if (audio_st)
+            return AV_SYNC_AUDIO_MASTER;
+        else if (video_st)
+            return AV_SYNC_VIDEO_MASTER;
+        else
+            return AV_SYNC_UNKNOW_MASTER;
+    }
+
+    return 0;
+}
+
+double FFPlayer::get_master_clock()
+{
+    double val;
+    switch (get_master_sync_type())
+    {
+    case AV_SYNC_VIDEO_MASTER:
+        //val = get_clock(&vidclk); 
+        break;
+    case AV_SYNC_AUDIO_MASTER:
+        val = get_clock(&audclk);
+        break;
+    default:
+        val = get_clock(&audclk);
+        break;
+    }
+    return val;
 }
 
 static int interrupt_cb(void *ctx)
@@ -512,7 +609,7 @@ static void sdl_audio_callback(void *opaque, Uint8 *steam, int len)
 
     if (!isnan(is->audio_clock))
     {
-        // 设置时钟
+        // 进行音频的时钟的对时
         set_clock(&is->audclk, is->audio_clock);
     }
 }
